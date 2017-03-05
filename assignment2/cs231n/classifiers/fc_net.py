@@ -190,8 +190,8 @@ class FullyConnectedNet(object):
       self.params['b%d' % (i+1)] = np.zeros(dims[i+1])
       self.params['W%d' % (i+1)] =  weight_scale * np.random.randn(dims[i], dims[i+1])
 
-    for k, v in self.params.iteritems():
-      print '%s: ' % k, v.shape
+    # for k, v in self.params.iteritems():
+    #  print '%s: ' % k, v.shape
     # pass
     ############################################################################
     #                             END OF YOUR CODE                             #
