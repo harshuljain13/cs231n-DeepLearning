@@ -185,6 +185,7 @@ class FullyConnectedNet(object):
     ############################################################################
 
     dims = [input_dim] + hidden_dims + [num_classes]
+
     for i in xrange(self.num_layers):
       self.params['b%d' % (i+1)] = np.zeros(dims[i+1])
       self.params['W%d' % (i+1)] =  weight_scale * np.random.randn(dims[i], dims[i+1])
@@ -199,6 +200,7 @@ class FullyConnectedNet(object):
     # When using dropout we need to pass a dropout_param dictionary to each
     # dropout layer so that the layer knows the dropout probability and the mode
     # (train / test). You can pass the same dropout_param to each dropout layer.
+
     self.dropout_param = {}
     if self.use_dropout:
       self.dropout_param = {'mode': 'train', 'p': dropout}
@@ -210,10 +212,17 @@ class FullyConnectedNet(object):
     # normalization layer. You should pass self.bn_params[0] to the forward pass
     # of the first batch normalization layer, self.bn_params[1] to the forward
     # pass of the second batch normalization layer, etc.
+
+
     self.bn_params = []
     if self.use_batchnorm:
-      self.bn_params = [{'mode': 'train'} for i in xrange(self.num_layers - 1)]
-    
+      self.bn_params = [{'mode': 'train', 'running_mean':np.zeros(dims[i+1]), 'running_vars': np.zeros(dims[i+1])} for i in xrange(self.num_layers - 1)]
+      gammas = {'gamma%d'%(i+1): np.ones(dims[i+1]) for i in xrange(self.num_layers - 1)}
+      betas = {'beta%d'%(i+1): np.zeros(dims[i+1]) for i in xrange(self.num_layers - 1)}
+
+      self.params.update(betas)
+      self.params.update(gammas)
+
     # Cast all parameters to the correct datatype
     for k, v in self.params.iteritems():
       self.params[k] = v.astype(dtype)
@@ -249,19 +258,34 @@ class FullyConnectedNet(object):
     # self.bn_params[1] to the forward pass for the second batch normalization #
     # layer, etc.                                                              #
     ############################################################################
+
+
+
     layer_out = {}
     layer_out[0] = X
     cache_layer = {}
     
     for i in range(1, self.num_layers):
-      layer_out[i], cache_layer[i] = affine_relu_forward(layer_out[i-1], \
-        self.params['W%d' % i], self.params['b%d' % i])
+      w = self.params['W%d' % i]
+      b = self.params['b%d' % i]
+
+      if self.use_batchnorm:
+        gamma = self.params['gamma%d' % i]
+        beta = self.params['beta%d' % i]
+        bn_param = self.bn_params[i-1]
+        layer_out[i], cache_layer[i] = affine_norm_relu_forward(layer_out[i-1], w,b,gamma,beta,bn_param)
+      
+      else:
+        layer_out[i], cache_layer[i] = affine_relu_forward(layer_out[i-1], w, b)
     
     # forward into last layer
 
     scores, cache_lastlayer = affine_forward(layer_out[self.num_layers - 1],
       self.params['W%d' % self.num_layers], self.params['b%d' % self.num_layers])
-    # pass
+
+
+
+
     ############################################################################
     #                             END OF YOUR CODE                             #
     ############################################################################
@@ -296,7 +320,19 @@ class FullyConnectedNet(object):
     grads['W%d' % self.num_layers] += self.reg * self.params['W%d' % self.num_layers]
 
     for i in reversed(xrange(1, self.num_layers)):
-      dx[i], grads['W%d' % i], grads['b%d' % i] = affine_relu_backward(dx[i+1], cache_layer[i])
+
+      # backpropagating the batch normalization
+      if self.use_batchnorm:
+        dh,dw,db,dgamma,dbeta = affine_norm_relu_backward(dx[i+1], cache_layer[i])
+        dx[i] = dh
+        grads['W%d' % i] = dw
+        grads['b%d' % i] = db
+        grads['gamma%d' % i] = dgamma
+        grads['beta%d' % i] = dbeta
+
+      else:
+        dx[i], grads['W%d' % i], grads['b%d' % i] = affine_relu_backward(dx[i+1], cache_layer[i])
+
       grads['W%d' % i] += self.reg * self.params['W%d' % i]
 
     # pass

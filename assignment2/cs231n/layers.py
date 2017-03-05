@@ -148,7 +148,7 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     - eps: Constant for numeric stability
     - momentum: Constant for running mean / variance.
     - running_mean: Array of shape (D,) giving running mean of features
-    - running_var Array of shape (D,) giving running variance of features
+    - running_var: Array of shape (D,) giving running variance of features
 
   Returns a tuple of:
   - out: of shape (N, D)
@@ -177,7 +177,33 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     # the momentum variable to update the running mean and running variance,    #
     # storing your result in the running_mean and running_var variables.        #
     #############################################################################
-    pass
+    # mini batch mean # step1
+    mu = np.sum(x,axis=0)/float(N)
+    
+    # mini batch variance
+    xmu = x-mu # step2
+    xmu_sq = xmu**2 # step3
+    var = np.sum(xmu_sq, axis = 0)/float(N) # step4
+
+    # invert of root(variance square + epsillon)
+    sqrt_var_eps = np.sqrt(var+eps) # step5
+    inv_sqrt_var_eps = 1/sqrt_var_eps # step 6
+
+    # normalized x
+    x_norm = xmu*inv_sqrt_var_eps # step 7
+    x_norm_scaled = gamma*x_norm # step 8
+    x_norm_scaled_shift = x_norm_scaled + beta # step 9
+
+    # running mean and variance calculation
+    running_mean = momentum * running_mean + (1 - momentum) * mu
+    running_var = momentum * running_var + (1 - momentum) * var
+
+    # building cache and out
+    out = x_norm_scaled_shift
+    cache = (mu, xmu, xmu_sq, var, sqrt_var_eps, inv_sqrt_var_eps, x_norm,
+      x_norm_scaled, gamma, beta, x, bn_param)
+
+    # pass
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -188,7 +214,12 @@ def batchnorm_forward(x, gamma, beta, bn_param):
     # and shift the normalized data using gamma and beta. Store the result in   #
     # the out variable.                                                         #
     #############################################################################
-    pass
+    mu = running_mean
+    var = running_var
+    x_norm = (x-mu)/np.sqrt(var+eps)
+    out = gamma*x_norm + beta
+    cache = (mu, var, gamma, beta, bn_param)
+    # pass
     #############################################################################
     #                             END OF YOUR CODE                              #
     #############################################################################
@@ -224,7 +255,43 @@ def batchnorm_backward(dout, cache):
   # TODO: Implement the backward pass for batch normalization. Store the      #
   # results in the dx, dgamma, and dbeta variables.                           #
   #############################################################################
-  pass
+  mu, xmu, xmu_sq, var, sqrt_var_eps, inv_sqrt_var_eps, x_norm,x_norm_scaled, gamma, beta, x, bn_param = cache
+  
+  eps = bn_param.get('eps', 1e-5)
+  N, D = dout.shape
+
+  # backprop step 9
+  dx_norm_scaled = dout
+  dbeta = np.sum(dout, axis = 0)
+
+  # backprop step 8
+  dx_norm = gamma * dout
+  dgamma = np.sum(x_norm * dx_norm_scaled,axis=0 )
+
+  # backprop step 7
+  dxmu = inv_sqrt_var_eps*dx_norm
+  dinv_sqrt_var_eps = np.sum(xmu * dx_norm, axis=0)
+
+  # backprop step6
+  dsqrt_var_eps = -1./(sqrt_var_eps**2) * dinv_sqrt_var_eps
+
+  # backprop step 5
+  dvar = 0.5 * (var+eps)**(-0.5) * dsqrt_var_eps
+
+  # backprop step 4
+  dxmu_sq = 1/ float(N) * np.ones((xmu_sq.shape)) * dvar
+
+  # backprop step 3
+  dxmu += 2* xmu * dxmu_sq
+
+  # backprop step 2
+  dx = dxmu
+  dmu = -np.sum(dxmu, axis=0)
+
+  # backprop step 1
+  dx += 1/float(N) * np.ones((dxmu.shape)) * dmu
+
+  #pass
   #############################################################################
   #                             END OF YOUR CODE                              #
   #############################################################################
