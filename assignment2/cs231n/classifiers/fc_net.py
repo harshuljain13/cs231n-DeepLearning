@@ -191,7 +191,7 @@ class FullyConnectedNet(object):
       self.params['W%d' % (i+1)] =  weight_scale * np.random.randn(dims[i], dims[i+1])
 
     # for k, v in self.params.iteritems():
-    #  print '%s: ' % k, v.shape
+    #     print '%s: ' % k, v.shape
     # pass
     ############################################################################
     #                             END OF YOUR CODE                             #
@@ -264,6 +264,7 @@ class FullyConnectedNet(object):
     layer_out = {}
     layer_out[0] = X
     cache_layer = {}
+    cache_drop_layer = {}
     
     for i in range(1, self.num_layers):
       w = self.params['W%d' % i]
@@ -277,6 +278,9 @@ class FullyConnectedNet(object):
       
       else:
         layer_out[i], cache_layer[i] = affine_relu_forward(layer_out[i-1], w, b)
+
+      if self.use_dropout:
+        layer_out[i], cache_drop_layer[i] = dropout_forward(layer_out[i], self.dropout_param)
     
     # forward into last layer
 
@@ -316,10 +320,16 @@ class FullyConnectedNet(object):
 
     # backpropogating the gradients
     dx = {}
+    
     dx[self.num_layers], grads['W%d' % self.num_layers],grads['b%d' % self.num_layers] = affine_backward(dscores, cache_lastlayer)
+    
     grads['W%d' % self.num_layers] += self.reg * self.params['W%d' % self.num_layers]
 
     for i in reversed(xrange(1, self.num_layers)):
+
+      # backpropagating dropout layer
+      if self.use_dropout:
+        dx[i+1] = dropout_backward(dx[i+1], cache_drop_layer[i])
 
       # backpropagating the batch normalization
       if self.use_batchnorm:
