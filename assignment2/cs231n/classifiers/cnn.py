@@ -53,7 +53,7 @@ class ThreeLayerConvNet(object):
     # F give the nb of filters, C,HH,WW characterize the size of
     # each filter
     # Input size : (N,C,H,W)
-    # Output size : (N,F,Hc,Wc)
+    # Output size : (N,F,H_,W_)
     C, H, W = input_dim
     F = num_filters
     HH = filter_size
@@ -213,6 +213,273 @@ class ThreeLayerConvNet(object):
     if self.use_batchnorm:
         grads.update({'beta1': dbeta1,'beta2': dbeta2,'gamma1': dgamma1,'gamma2': dgamma2})
     
+    # pass
+    ############################################################################
+    #                             END OF YOUR CODE                             #
+    ############################################################################
+    
+    return loss, grads
+
+
+class MultiLayerConvNet(object):
+  """
+  A three-layer convolutional network with the following architecture:
+  
+  [conv - relu - 2x2 max pool - {batch norm layer}]x M - [affine-{batch norm layer}-relu]x N - affine - softmax
+  
+  The network operates on minibatches of data that have shape (N, C, H, W)
+  consisting of N images, each with height H and width W and with C input
+  channels.
+  """
+  
+  def __init__(self, input_dim=(3, 32, 32), num_filters=[32], filter_size=[7],
+               hidden_dim=[100], num_classes=10, weight_scale=1e-3, reg=0.0,
+               dtype=np.float32, use_batchnorm=False):
+    """
+    Initialize a new network.
+    
+    Inputs:
+    - input_dim: Tuple (C, H, W) giving size of input data
+    - num_filters: Number of filters to use in the convolutional layer
+    - filter_size: Size of filters to use in the convolutional layer
+    - hidden_dim: Number of units to use in the fully-connected hidden layer
+    - num_classes: Number of scores to produce from the final affine layer.
+    - weight_scale: Scalar giving standard deviation for random initialization
+      of weights.
+    - reg: Scalar giving L2 regularization strength
+    - dtype: numpy datatype to use for computation.
+    - use_batchnorm: Whether or not the network should use batch normalization.
+    """
+    self.use_batchnorm = use_batchnorm
+    self.params = {}
+    self.reg = reg
+    self.dtype = dtype
+    
+    ############################################################################
+    # TODO: Initialize weights and biases for the Multi-layer convolutional    #
+    # network. Weights should be initialized from a Gaussian with standard     #
+    # deviation equal to weight_scale; biases should be initialized to zero.   #
+    # All weights and biases should be stored in the dictionary self.params.   #
+    # Store weights and biases for the convolutional layer using the keys 'W1' #
+    # and 'b1'; use keys 'W2' and 'b2' for the weights and biases of the       #
+    # hidden affine layer, and keys 'W3' and 'b3' for the weights and biases   #
+    # of the output affine layer.                                              #
+    ############################################################################
+    # The parameters of the conv is of size (F,C,HH,WW) with
+    # F give the nb of filters, C,HH,WW characterize the size of
+    # each filter
+    # Input size : (N,C,H,W)
+    # Output size : (N,F,H_,W_)
+
+    M = len(num_filters)
+    N = len(hidden_dim)
+    self.num_conv_layers = M
+    self.num_affine_layers = N
+
+    C, H, W = input_dim
+
+    self.bn_params = {}
+
+    for i in range(M):
+        F = num_filters[i]
+        HH = filter_size[i]
+        WW = filter_size[i]
+        stride = 1
+        pad = (filter_size[i] - 1)/2
+        H_ = (H-HH + 2*pad)/stride + 1
+        W_ = (W-WW + 2*pad)/stride + 1
+
+        # Pool layer : 2*2
+        # The pool layer has no arameters but is important in the count of dimension.
+        # Input : (N,C,H_, W_)
+        # output: (N, F, Hp, Wp)
+        width_pool = 2
+        height_pool = 2
+        stride_pool = 2
+        Hp = (H_ - height_pool)/stride_pool + 1
+        Wp = (W_ - width_pool)/stride_pool + 1
+        
+        self.params['Wm%d' % (i+1)] = weight_scale * np.random.randn(F, C, HH, WW)
+        self.params['bm%d' % (i+1)] = np.zeros(F)
+
+
+        if self.use_batchnorm:
+            self.bn_params['bn_paramm%d' %(i+1)] = {'mode': 'train', 
+                                                   'running_mean':np.zeros(F),
+                                                   'running_var': np.zeros(F)}
+            self.params['gammam%d' % (i+1)] = np.ones(F)
+            self.params['betam%d' % (i+1)] = np.zeros(F)
+
+        H=Hp
+        W=Wp
+        C=F
+
+    
+    Hh_ = F*Hp*Wp
+    
+    for i in range(N):
+        # Hidden Affine layer
+        # Input: (N, F*Hp*Wp)
+        # Output: (N,Hh)
+        
+        Hh = hidden_dim[i]
+        self.params['Wn%d' % (i+1)] = weight_scale * np.random.randn(Hh_, Hh)
+        self.params['bn%d' % (i+1)] = np.zeros(Hh)
+
+        if self.use_batchnorm:
+            self.bn_params['bn_paramn%d' % (i+1)] = {'mode': 'train',
+                        'running_mean': np.zeros(Hh),
+                         'running_var': np.zeros(Hh)}
+            self.params['gamman%d' % (i+1)] = np.ones(Hh)
+            self.params['betan%d' % (i+1)] = np.zeros(Hh)
+        Hh_ = Hh
+
+
+    # Last output affine layer
+    # Input: (N,Hh)
+    # Output: (N,Hc)
+    Hc = num_classes
+    self.params['W3'] = weight_scale * np.random.randn(Hh, Hc)
+    self.params['b3'] = np.zeros(Hc)
+
+    # pass
+    ############################################################################
+    #                             END OF YOUR CODE                             #
+    ############################################################################
+
+    for k, v in self.params.iteritems():
+      self.params[k] = v.astype(dtype)
+     
+ 
+  def loss(self, X, y=None):
+    """
+    Evaluate loss and gradient for the three-layer convolutional network.
+    
+    Input / output: Same API as TwoLayerNet in fc_net.py.
+    """
+    ############################BATCH NORMALIZATION###########################
+    X = X.astype(self.dtype)
+    mode = 'test' if y is None else 'train'
+    if self.use_batchnorm:
+      for key, bn_param in self.bn_params.iteritems():
+        bn_param[mode] = mode
+
+    N = X.shape[0]
+    
+    #if self.use_batchnorm:
+    #    bn_param1, gamma1, beta1 = self.bn_params[
+    #        'bn_param1'], self.params['gamma1'], self.params['beta1']
+    #    bn_param2, gamma2, beta2 = self.bn_params[
+    #        'bn_param2'], self.params['gamma2'], self.params['beta2']
+    ##########################################################################
+    
+    #W1, b1 = self.params['W1'], self.params['b1']
+    #W2, b2 = self.params['W2'], self.params['b2']
+    #W3, b3 = self.params['W3'], self.params['b3']
+    
+    scores = None
+
+    conv_out = X
+    cache_conv_layer = {}
+    cache_affine_relu_layer = {}
+    for i in range(self.num_conv_layers):
+        # pass conv_param and pool_param to the forward pass for the convolutional layer
+        filter_size = self.params['Wm%d' % (i+1)].shape[2]
+        conv_param = {'stride': 1, 'pad': (filter_size - 1) / 2}
+        pool_param = {'pool_height': 2, 'pool_width': 2, 'stride': 2}
+
+    
+        ############################################################################
+        # TODO: Implement the forward pass for the three-layer convolutional net,  #
+        # computing the class scores for X and storing them in the scores          #
+        # variable.                                                                #
+        ############################################################################
+
+        if self.use_batchnorm:
+            conv_out, cache_conv_layer[(i+1)] = conv_norm_relu_pool_forward(conv_out, 
+                self.params['Wm%d' % (i+1)], self.params['bm%d' % (i+1)] ,conv_param, pool_param,
+                 self.params['gammam%d' % (i+1)] , self.params['betam%d' % (i+1)],
+                 self.bn_params['bn_paramm%d' % (i+1)])
+        else:
+            conv_out, cache_conv_layer[(i+1)] = conv_relu_pool_forward(conv_out, self.params['Wm%d' % (i+1)],
+            self.params['bm%d' % (i+1)], conv_param, pool_param)
+    
+    affine_relu_out = conv_out
+
+    for i in range(self.num_affine_layers):
+        if self.use_batchnorm:
+            affine_relu_out, cache_affine_relu_layer[(i+1)] = affine_norm_relu_forward(
+                affine_relu_out, self.params['Wn%d' % (i+1)], self.params['bn%d' % (i+1)],
+                self.params['gamman%d' % (i+1)], self.params['betan%d' % (i+1)], self.bn_params['bn_paramn%d' % (i+1)])
+        else:
+            affine_relu_out, cache_affine_relu_layer[(i+1)] = affine_relu_forward(affine_relu_out,
+             self.params['Wn%d' % (i+1)], self.params['bn%d' % (i+1)])
+    
+    scores, cache_affine_layer = affine_forward(affine_relu_out, self.params['W3'], self.params['b3'])
+
+    # pass
+    ############################################################################
+    #                             END OF YOUR CODE                             #
+    ############################################################################
+    
+    if y is None:
+      return scores
+    
+    loss, grads = 0, {}
+    ############################################################################
+    # TODO: Implement the backward pass for the three-layer convolutional net, #
+    # storing the loss and gradients in the loss and grads variables. Compute  #
+    # data loss using softmax, and make sure that grads[k] holds the gradients #
+    # for self.params[k]. Don't forget to add L2 regularization!               #
+    ############################################################################
+    data_loss, dscores = softmax_loss(scores, y)
+
+    reg_loss = 0
+
+    for i in range(self.num_conv_layers):
+        reg_loss = 0.5 * self.reg * np.sum((self.params['Wm%d' % (i+1)])**2)
+    
+    for i in range(self.num_affine_layers):
+        reg_loss = 0.5 * self.reg * np.sum((self.params['Wn%d' % (i+1)])**2)
+    
+    loss = data_loss + reg_loss
+
+    dx3,dw3,db3 = affine_backward(dscores, cache_affine_layer)
+    dw3+=self.reg*self.params['W3']
+    grads['W3'] = dw3
+    grads['b3'] = db3
+
+    dxn = dx3
+    for i in reversed(range(self.num_affine_layers)):
+        if self.use_batchnorm:
+            dxn, dwn, dbn, dgamman, dbetan = affine_norm_relu_backward(dxn, cache_affine_relu_layer[(i+1)])
+            dwn += self.reg*self.params['Wn%d' % (i+1)]
+            grads['Wn%d' % (i+1)] = dwn
+            grads['bn%d' % (i+1)] = dbn
+            grads['gamman%d' % (i+1)] = dgamman
+            grads['betan%d' % (i+1)] = dbetan
+               
+        else:
+            dxn, dwn, dbn = affine_relu_backward(dxn, cache_affine_relu_layer[(i+1)])
+            dwn += self.reg*self.params['Wn%d' % (i+1)]
+            grads['Wn%d' % (i+1)] = dwn
+            grads['bn%d' % (i+1)] = dbn
+    
+    dxm = dxn
+    for i in reversed(range(self.num_conv_layers)):
+        if self.use_batchnorm:
+            dxm,dwm,dbm, dgammam, dbetam = conv_norm_relu_pool_backward(dxm, cache_conv_layer[(i+1)])
+            dwm+=self.reg*self.params['Wm%d' % (i+1)]
+            grads['Wm%d' % (i+1)] = dwm
+            grads['bm%d' % (i+1)] = dbm
+            grads['gammam%d' % (i+1)] = dgammam
+            grads['betam%d' % (i+1)] = dbetam
+        else:
+            dxm, dwm, dbm = conv_relu_pool_backward(dxm, cache_conv_layer[(i+1)])
+            dwm += self.reg*self.params['Wm%d' % (i+1)]
+            grads['Wm%d' % (i+1)] = dwm
+            grads['bm%d' % (i+1)] = dbm
+
     # pass
     ############################################################################
     #                             END OF YOUR CODE                             #
